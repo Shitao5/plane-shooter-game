@@ -12,7 +12,7 @@ npm run dev
 默认本地地址：
 
 ```text
-http://127.0.0.1:4173/
+http://127.0.0.1:5173/
 ```
 
 生产构建：
@@ -26,6 +26,12 @@ npm run build
 ```bash
 npm run preview
 ```
+
+## GitHub 发布前检查
+
+- 提交前确认 `node_modules/`、`dist/` 不在仓库记录中
+- 运行一次 `npm ci && npm run build`
+- README 里保留清晰的运行步骤（已包含）
 
 ## 操作
 
