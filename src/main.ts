@@ -2,7 +2,7 @@ import './styles.css';
 
 type GameState = 'MENU' | 'PLAYING' | 'PAUSED' | 'GAME_OVER';
 type BulletMode = 'normal' | 'spread' | 'rapid' | 'laser';
-type PowerupMode = BulletMode | 'bomb';
+type PowerupMode = BulletMode | 'bomb' | 'heal' | 'shield';
 type EnemyType = 'scout' | 'fighter' | 'heavy';
 type PathKind = 'straight' | 'sine' | 'zigzag' | 'curve';
 type DifficultyId = 'easy' | 'normal' | 'hard';
@@ -104,6 +104,7 @@ interface Player {
   bulletMode: BulletMode;
   powerupExpireAt: number;
   invincibleUntil: number;
+  shieldUntil: number;
 }
 
 interface Star {
@@ -119,6 +120,7 @@ const LOGICAL_WIDTH = 480;
 const LOGICAL_HEIGHT = 720;
 const BEST_SCORE_KEY = 'plane_shooter_high_score_v1';
 const POWERUP_DURATION = 8000;
+const SHIELD_DURATION = 6500;
 const BOMB_MESSAGE_MS = 1800;
 
 const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
@@ -183,6 +185,8 @@ const POWERUP_COLOR_BY_MODE: Record<PowerupMode, string> = {
   rapid: '#ffe56d',
   laser: '#ff6785',
   bomb: '#ffd57a',
+  heal: '#61ff9b',
+  shield: '#8ddcff',
 };
 
 const POWERUP_SYMBOL: Record<PowerupMode, string> = {
@@ -191,6 +195,8 @@ const POWERUP_SYMBOL: Record<PowerupMode, string> = {
   rapid: 'R',
   laser: 'L',
   bomb: 'B',
+  heal: '+',
+  shield: 'D',
 };
 
 const SPRITE_DRAW_SCALE: Record<string, { w: number; h: number }> = {
@@ -309,6 +315,7 @@ function createPlayer(): Player {
     bulletMode: 'normal',
     powerupExpireAt: 0,
     invincibleUntil: 0,
+    shieldUntil: 0,
   };
 }
 
@@ -385,7 +392,10 @@ function spawnEnemy(): void {
 }
 
 function randomPowerupMode(): PowerupMode {
-  return randomChoice<PowerupMode>(['spread', 'rapid', 'laser', 'bomb'], [0.33, 0.32, 0.24, 0.11]);
+  return randomChoice<PowerupMode>(
+    ['spread', 'rapid', 'laser', 'bomb', 'heal', 'shield'],
+    [0.26, 0.24, 0.18, 0.1, 0.13, 0.09],
+  );
 }
 
 function spawnPowerup(x: number, y: number, mode: PowerupMode, forced = false): void {
@@ -430,6 +440,26 @@ function triggerBomb(now: number): void {
   setStatusText(`BOMB 清屏：消灭 ${count} 敌 +${totalGain}`, now);
   addExplosion(player.x, player.y, 'rgba(255,220,120,0.7)');
   enemies.splice(0, enemies.length);
+}
+
+function triggerHeal(now: number): void {
+  if (player.hp < player.maxHp) {
+    player.hp += 1;
+    setStatusText(`维修补给：HP +1 (${player.hp}/${player.maxHp})`, now);
+    addExplosion(player.x, player.y, 'rgba(110,255,170,0.85)');
+    return;
+  }
+
+  score += 120;
+  setStatusText('维修补给：满血，转化 +120 分', now);
+  addExplosion(player.x, player.y, 'rgba(110,255,170,0.65)');
+}
+
+function triggerShield(now: number): void {
+  player.shieldUntil = now + SHIELD_DURATION;
+  player.invincibleUntil = Math.max(player.invincibleUntil, now + 700);
+  setStatusText(`护盾启动：${Math.ceil(SHIELD_DURATION / 1000)}s`, now);
+  addExplosion(player.x, player.y, 'rgba(120,220,255,0.75)');
 }
 
 function fireBullets(now: number): void {
@@ -615,6 +645,12 @@ function update(dt: number, now: number): void {
     const e = enemies[ei];
     if (!e) continue;
     if (circleCollision(player.x, player.y, player.radius, e.x, e.y, e.radius)) {
+      if (now < player.shieldUntil) {
+        score += Math.floor(e.scoreValue * 0.45);
+        addExplosion(e.x, e.y, 'rgba(125,220,255,0.9)');
+        enemies.splice(ei, 1);
+        continue;
+      }
       if (now >= player.invincibleUntil) {
         player.hp -= 1;
         player.invincibleUntil = now + 1000;
@@ -671,6 +707,10 @@ function update(dt: number, now: number): void {
     if (circleCollision(player.x, player.y, player.radius, powerup.x, powerup.y, powerup.radius)) {
       if (powerup.mode === 'bomb') {
         triggerBomb(now);
+      } else if (powerup.mode === 'heal') {
+        triggerHeal(now);
+      } else if (powerup.mode === 'shield') {
+        triggerShield(now);
       } else {
         player.bulletMode = powerup.mode;
         player.powerupExpireAt = now + POWERUP_DURATION;
@@ -751,6 +791,13 @@ function drawSprite(
   ctx.restore();
 }
 
+function powerupSpriteSource(mode: PowerupMode): { sx: number; sy: number } {
+  if (mode === 'bomb') return SPRITE_SOURCES.rapid;
+  if (mode === 'heal') return SPRITE_SOURCES.normal;
+  if (mode === 'shield') return SPRITE_SOURCES.laser;
+  return SPRITE_SOURCES[mode];
+}
+
 function drawPlayer(now: number): void {
   const blink = now < player.invincibleUntil && Math.floor(now / 60) % 2 === 0;
   if (blink) return;
@@ -758,6 +805,7 @@ function drawPlayer(now: number): void {
   const y = player.y;
   const r = player.radius;
   const pulse = 1 + Math.sin(now / 90) * 0.06;
+  const shieldActive = now < player.shieldUntil;
   if (spriteSheetReady) {
     drawSprite(SPRITE_SOURCES.player, x, y - 2, r * SPRITE_DRAW_SCALE.player.w, r * SPRITE_DRAW_SCALE.player.h);
     for (let i = -1; i <= 1; i += 1) {
@@ -771,6 +819,13 @@ function drawPlayer(now: number): void {
     ctx.beginPath();
     ctx.arc(x, y, r + 0.4, 0, Math.PI * 2);
     ctx.stroke();
+    if (shieldActive) {
+      ctx.strokeStyle = `rgba(125, 220, 255, ${0.42 + Math.sin(now / 140) * 0.18})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 2.0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     return;
   }
   const core = ctx.createRadialGradient(x - 3, y - 3, 2, x, y, r + 2);
@@ -813,6 +868,13 @@ function drawPlayer(now: number): void {
   ctx.beginPath();
   ctx.arc(x, y, r + 0.4, 0, Math.PI * 2);
   ctx.stroke();
+  if (shieldActive) {
+    ctx.strokeStyle = 'rgba(125, 220, 255, 0.62)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 2.0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 function drawEnemy(enemy: Enemy): void {
@@ -871,19 +933,23 @@ function drawPowerups(dt: number): void {
     ctx.arc(p.x, p.y, p.radius * (1.35 * scale), 0, Math.PI * 2);
     ctx.fill();
     if (spriteSheetReady) {
-      const spriteType = SPRITE_SOURCES[p.mode === 'bomb' ? 'rapid' : p.mode];
-      drawSprite(spriteType, p.x, p.y, p.radius * SPRITE_DRAW_SCALE.powerup.w * scale, p.radius * SPRITE_DRAW_SCALE.powerup.h * scale);
-      if (p.mode === 'bomb') {
-        ctx.strokeStyle = `rgba(255, 130, 90, ${0.8 + scale * 0.1})`;
+      drawSprite(powerupSpriteSource(p.mode), p.x, p.y, p.radius * SPRITE_DRAW_SCALE.powerup.w * scale, p.radius * SPRITE_DRAW_SCALE.powerup.h * scale);
+      if (p.mode === 'bomb' || p.mode === 'heal' || p.mode === 'shield') {
+        ctx.strokeStyle =
+          p.mode === 'bomb'
+            ? `rgba(255, 130, 90, ${0.8 + scale * 0.1})`
+            : p.mode === 'heal'
+              ? `rgba(105, 255, 150, ${0.72 + scale * 0.1})`
+              : `rgba(125, 220, 255, ${0.72 + scale * 0.1})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius * (1.75 + scale * 0.2), 0, Math.PI * 2);
         ctx.stroke();
-        ctx.fillStyle = '#fff4d1';
+        ctx.fillStyle = p.mode === 'bomb' ? '#fff4d1' : '#f5fff9';
         ctx.font = `bold ${12 * scale}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(POWERUP_SYMBOL.bomb, p.x, p.y + 1);
+        ctx.fillText(POWERUP_SYMBOL[p.mode], p.x, p.y + 1);
       }
       continue;
     }
@@ -918,10 +984,11 @@ function drawHUD(now: number): void {
     player.bulletMode === 'normal'
       ? ''
       : ` (${Math.max(0, Math.ceil((player.powerupExpireAt - now) / 1000))}s)`;
+  const shieldRemain = Math.max(0, Math.ceil((player.shieldUntil - now) / 1000));
   const statusAlpha = statusText ? Math.min(1, (statusTextUntil - now) / BOMB_MESSAGE_MS) : 0;
 
   ctx.fillStyle = 'rgba(7, 14, 32, 0.64)';
-  const hudHeight = statusText ? 150 : 128;
+  const hudHeight = statusText || shieldRemain > 0 ? 166 : 128;
   ctx.fillRect(10, 10, 268, hudHeight);
   ctx.fillStyle = '#f5f8ff';
   ctx.font = '700 13px "PingFang SC", "Microsoft YaHei", sans-serif';
@@ -930,9 +997,13 @@ function drawHUD(now: number): void {
   ctx.fillText(`LV:${level}  DIFF:${DIFFICULTIES[selectedDifficulty].label}`, 22, 65);
   ctx.fillText(`HP`, 22, 94);
   ctx.fillText(`武器: ${safeMode}${remain}`, 22, 112);
+  if (shieldRemain > 0) {
+    ctx.fillStyle = '#b9eaff';
+    ctx.fillText(`护盾: ${shieldRemain}s`, 22, 130);
+  }
   if (statusText) {
     ctx.fillStyle = `rgba(255,255,255,${Math.max(0.18, statusAlpha).toFixed(3)})`;
-    ctx.fillText(statusText, 22, 136);
+    ctx.fillText(statusText, 22, shieldRemain > 0 ? 154 : 136);
   }
 
   const hpWidth = 112;
@@ -962,17 +1033,18 @@ function drawOverlays(now: number): void {
     ctx.fillText('W/A/S/D 或方向键移动，自动前进发射', LOGICAL_WIDTH / 2, 268);
     ctx.fillText('按空格开始，P/Esc 暂停', LOGICAL_WIDTH / 2, 288);
     ctx.fillText('道具: S(散射) R(快速) L(激光) B(清屏)', LOGICAL_WIDTH / 2, 308);
-    ctx.fillText('1 2 3 选择难度：EASY / NORMAL / HARD', LOGICAL_WIDTH / 2, 328);
+    ctx.fillText('新增: +(回血) D(护盾)', LOGICAL_WIDTH / 2, 328);
+    ctx.fillText('1 2 3 选择难度：EASY / NORMAL / HARD', LOGICAL_WIDTH / 2, 348);
 
     const color = (key: DifficultyId) => (selectedDifficulty === key ? '#8cf' : '#b9c7ff');
     ctx.fillStyle = color('easy');
-    ctx.fillText(`1. EASY`, LOGICAL_WIDTH / 2, 366);
+    ctx.fillText(`1. EASY`, LOGICAL_WIDTH / 2, 382);
     ctx.fillStyle = color('normal');
-    ctx.fillText(`2. NORMAL`, LOGICAL_WIDTH / 2, 392);
+    ctx.fillText(`2. NORMAL`, LOGICAL_WIDTH / 2, 408);
     ctx.fillStyle = color('hard');
-    ctx.fillText(`3. HARD`, LOGICAL_WIDTH / 2, 418);
+    ctx.fillText(`3. HARD`, LOGICAL_WIDTH / 2, 434);
     ctx.fillStyle = '#e2ecff';
-    ctx.fillText('规则：每 1000 分提升难度（速度/血量/生成）', LOGICAL_WIDTH / 2, 450);
+    ctx.fillText('规则：每 1000 分提升难度（速度/血量/生成）', LOGICAL_WIDTH / 2, 464);
     return;
   }
 
