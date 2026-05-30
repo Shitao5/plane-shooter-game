@@ -33,6 +33,25 @@ npm run preview
 - 运行一次 `npm ci && npm run build`
 - README 里保留清晰的运行步骤（已包含）
 
+## 发布到 GitHub Pages
+
+仓库已包含 GitHub Actions 部署配置：`.github/workflows/deploy-pages.yml`。
+
+第一次开启网址：
+
+1. 把代码推送到 GitHub 的 `main` 分支。
+2. 打开仓库页面，进入 `Settings` -> `Pages`。
+3. 在 `Build and deployment` 里把 `Source` 设为 `GitHub Actions`。
+4. 回到 `Actions`，等待 `Deploy to GitHub Pages` 运行完成。
+
+发布成功后，游戏地址通常是：
+
+```text
+https://shitao5.github.io/plane-shooter-game/
+```
+
+之后每次推送到 `main`，GitHub 会自动重新构建并更新这个网页。
+
 ## 操作
 
 - `W/A/S/D` 或方向键：上下左右移动

@@ -231,7 +231,7 @@ let spriteSheetReady = false;
 spriteSheet.onload = () => {
   spriteSheetReady = true;
 };
-spriteSheet.src = '/assets/plane-shooter-sprites.png';
+spriteSheet.src = `${import.meta.env.BASE_URL}assets/plane-shooter-sprites.png`;
 
 const stars: Star[] = [];
 let selectedDifficulty: DifficultyId = 'normal';
